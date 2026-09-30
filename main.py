@@ -19,7 +19,6 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 VOICE = "tr-TR-AhmetNeural"
 
 def get_system_font():
-    """Linux / GitHub Actions ortamında sorunsuz çalışan font yolunu döndürür."""
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -31,12 +30,10 @@ def get_system_font():
     return None
 
 def clean_text_for_tts(text):
-    """TTS okuması yaparken emoji ve sembolleri temizler."""
     cleaned = re.sub(r'[^\w\s,?!.çğıöşüÇĞİÖŞÜ]', '', text)
     return cleaned.strip()
 
 def create_subtitle_image(text, max_width=860, font_path=None, font_size=46):
-    """Metni şeffaf siyah kart üstünde dikey format için PIL görseline çevirir."""
     if font_path and os.path.exists(font_path):
         font = ImageFont.truetype(font_path, font_size)
     else:
@@ -88,60 +85,76 @@ async def generate_speech(text, output_audio):
     await communicate.save(output_audio)
 
 def process_and_resize_image(img_path, target_w=1080, target_h=1920):
-    """Görseli MoviePy resize kullanmadan doğrudan PIL ile 1080x1920 boyutlandırır (ANTIALIAS Hatasını Engeller)."""
     try:
         with Image.open(img_path) as img:
             img = img.convert("RGB")
-            # Resampling filtresini yeni Pillow sürümleri ile uyumlu hale getiriyoruz
             resample_filter = getattr(Image, 'Resampling', Image).LANCZOS
             img_resized = img.resize((target_w, target_h), resample_filter)
             img_resized.save(img_path)
     except Exception as e:
-        print(f"  ⚠️ Görsel yeniden boyutlandırma hatası: {e}")
+        print(f"  ⚠️ Görsel boyutlandırma hatası: {e}")
+
+# Birebir Sahne İstemleri (Prompts)
+SCENE_PROMPTS = [
+    # 1. Antik çağ ceza sistemi
+    "ancient Greece public square, ancient execution and punishment atmosphere, dark cinematic lighting, dramatic historical scene, 8k",
+    # 2. Boğa heykeli
+    "a massive hollow bronze bull statue, ancient Greek brass bull torture device, ancient city background, dramatic lighting, detailed, 8k",
+    # 3. Boğa heykelinin içine giren adam
+    "a man entering inside a large bronze bull statue door, ancient Greek victim locked inside metal bull, dark suspense, cinematic",
+    # 4. Boğa heykelinin altında yanan ateş
+    "giant fire burning underneath a bronze bull statue, roaring flames, dark smoke, dramatic ancient scene, realistic fire, 8k",
+    # 5. Boğa heykelinin burnundan çıkan duman/buharlar
+    "smoke and steam coming out of the nostrils of a bronze bull statue, dramatic fire light, cinematic medieval atmosphere, 8k",
+    # 6. Mucidin cezalandırılması / Ironi
+    "ancient Greek inventor locked inside bronze bull statue, dark ironical punishment scene, dramatic lighting, epic cinematic, 8k"
+]
 
 def generate_ai_image(sentence_text, index):
-    """Pollinations.ai kullanarak cümleye uygun dikey yapay zeka görseli üretir."""
     temp_path = f"temp_img_{index}.jpg"
     
-    cleaned_text = re.sub(r'[^\w\s]', '', sentence_text).strip()
-    words = cleaned_text.split()
-    base_keywords = " ".join(words[:4]) if words else "dark history"
+    # İstenen özel sahneyi diziden seç, aşarsa son sahneyi kullan
+    prompt_index = min(index, len(SCENE_PROMPTS) - 1)
+    ai_prompt = SCENE_PROMPTS[prompt_index]
     
-    prompt = f"dark historical scene, cinematic lighting, realistic, {base_keywords}"
-    encoded_prompt = urllib.parse.quote(prompt)
-    
+    encoded_prompt = urllib.parse.quote(ai_prompt)
     ai_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1920&nologo=true&seed={random.randint(1, 99999)}"
 
+    # 1. Deneme: Birebir Yapay Zeka Çizimi
     try:
-        res = requests.get(ai_url, timeout=10)
+        res = requests.get(ai_url, timeout=15)
         if res.status_code == 200 and len(res.content) > 1000:
             with open(temp_path, "wb") as f:
                 f.write(res.content)
             process_and_resize_image(temp_path)
-            print(f"  🎨 [Cümle {index+1}] AI Görseli Üretildi!")
+            print(f"  🎨 [Sahne {index+1}] Özel AI Görseli Üretildi: {ai_prompt[:40]}...")
             return temp_path
     except Exception as e:
-        print(f"  ⚠️ AI görseli zaman aşımına uğradı ({e}), Pexels/Yedek moda geçiliyor.")
+        print(f"  ⚠️️ AI zaman aşımı ({e}), Pexels aramasına geçiliyor...")
 
-    # Pexels Yedek
+    # 2. Deneme: Pexels Özel Aramalar
+    pexels_queries = ["ancient Greece", "bronze statue", "man entering metal", "fire flames dark", "smoke fire", "ancient history"]
+    p_query = pexels_queries[prompt_index if prompt_index < len(pexels_queries) else -1]
+
     if PEXELS_API_KEY:
         try:
             headers = {"Authorization": PEXELS_API_KEY}
-            pexels_url = "https://api.pexels.com/v1/search?query=dark%20history&orientation=portrait&per_page=10"
-            pexels_res = requests.get(pexels_url, headers=headers, timeout=5).json()
+            pexels_url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(p_query)}&orientation=portrait&per_page=10"
+            pexels_res = requests.get(pexels_url, headers=headers, timeout=6).json()
             photos = pexels_res.get("photos", [])
             if photos:
-                selected_photo = random.choice(photos[:min(3, len(photos))])
+                selected_photo = random.choice(photos[:min(5, len(photos))])
                 img_url = selected_photo["src"].get("original", selected_photo["src"]["large2x"])
-                img_data = requests.get(img_url, timeout=5).content
+                img_data = requests.get(img_url, timeout=6).content
                 with open(temp_path, "wb") as f:
                     f.write(img_data)
                 process_and_resize_image(temp_path)
+                print(f"  🖼️️ [Sahne {index+1}] Pexels Görseli Çekildi ({p_query})")
                 return temp_path
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  ⚠️ Pexels hatası: {e}")
 
-    # Siyah Tuval Yedek
+    # 3. Yedek Siyah Ekran
     Image.new('RGB', (1080, 1920), color=(15, 15, 15)).save(temp_path)
     return temp_path
 
@@ -160,7 +173,7 @@ def send_telegram_video(video_path, caption=""):
         with open(video_path, "rb") as video_file:
             payload = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"}
             files = {"video": video_file}
-            requests.post(url, data=payload, files=files, timeout=60)
+            requests.post(url, data=payload, files=files, timeout=90)
             print("✅ Video Telegram'a iletildi!")
     except Exception as e:
         print(f"❌ Telegram hatası: {e}")
@@ -197,15 +210,13 @@ def create_video():
     temp_subtitle_files = []
     current_time = 0.0
 
-    print("🤖 Yapay zeka ile cümleye özel görseller üretiliyor...")
+    print("🤖 Birebir istenen sahnelerin görselleri üretiliyor...")
     for idx, sentence in enumerate(sentences):
         word_count = len(sentence.split())
         sentence_duration = max(2.0, (word_count / total_words) * total_duration)
 
-        # Yapay zeka görsel üretimi
         img_path = generate_ai_image(sentence, idx)
         
-        # MoviePy'ın .resize() metodu yerine doğrudan PIL ile işlenmiş görseli ekliyoruz
         img_clip = ImageClip(img_path).set_duration(sentence_duration)
         image_clips.append(img_clip)
 
@@ -250,7 +261,6 @@ def create_video():
         threads=2
     )
 
-    # Temizlik
     for idx in range(len(sentences)):
         f_path = f"temp_img_{idx}.jpg"
         if os.path.exists(f_path):
@@ -265,7 +275,7 @@ def create_video():
 
     send_telegram_video(
         video_path=output_filename,
-        caption="🎬 **Yapay Zeka (AI) Tarafından Görselleri Üretilmiş HD Video!**"
+        caption="🎬 **Tamamen İstediğiniz Sahnelerle Üretilmiş HD Video!**"
     )
 
 if __name__ == "__main__":
