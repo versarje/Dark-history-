@@ -16,13 +16,10 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install System & Font Dependencies
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          # Microsoft lisans anlaşmasını otomatik kabul et
-          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
-          sudo apt-get install -y ffmpeg imagemagick fonts-dejavu ttf-mscorefonts-installer fonts-roboto fonts-montserrat
-          sudo fc-cache -f -v
+          sudo apt-get install -y ffmpeg imagemagick
           sudo sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
           sudo sed -i 's/domain="path" type="regex" pattern="@\*"//' /etc/ImageMagick-6/policy.xml
 
