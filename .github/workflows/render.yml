@@ -9,7 +9,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -20,7 +20,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg imagemagick
-          # ImageMagick güvenlik ilkesi izinleri (TextClip sorunsuz çalışsın diye)
           sudo sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
           sudo sed -i 's/domain="path" type="regex" pattern="@\*"//' /etc/ImageMagick-6/policy.xml
 
@@ -37,7 +36,7 @@ jobs:
         run: python main.py
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dark-history-video
           path: dark_history_output.mp4
