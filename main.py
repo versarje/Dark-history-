@@ -8,16 +8,16 @@ from moviepy import (
     CompositeAudioClip, concatenate_videoclips
 )
 
+# Ortam Değişkenleri
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 VOICE = "tr-TR-AhmetNeural"
-
 SEARCH_KEYWORDS = ["ancient ruins", "fire burning", "dark smoke", "bronze statue", "spooky dark background"]
 
 def get_system_font():
-    """Ubuntu/Linux sistemindeki garanti .ttf font dosyasının yolunu döndürür."""
+    """Linux ortamında Pillow ve MoviePy için %100 uyumlu font yolunu tespit eder."""
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -29,18 +29,21 @@ def get_system_font():
     return None
 
 async def generate_speech(text, output_audio):
+    """Metni gTTS yerine edge-tts ile yüksek kalitede seslendirir."""
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_audio)
 
 def fetch_pexels_video(query, index):
+    """Pexels API üzerinden dikey (1080x1920) HD video indirir."""
     if not PEXELS_API_KEY:
-        raise ValueError("PEXELS_API_KEY bulunamadı!")
+        raise ValueError("PEXELS_API_KEY bulunamadı! GitHub Secrets kontrol edilmeli.")
         
     headers = {"Authorization": PEXELS_API_KEY}
     url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=15"
     res = requests.get(url, headers=headers).json()
     videos = res.get("videos", [])
     
+    # Arama sonucu boşsa varsayılan karanlık tema videosu çeker
     if not videos:
         url = "https://api.pexels.com/videos/search?query=dark%20atmosphere&orientation=portrait&per_page=15"
         videos = requests.get(url, headers=headers).json().get("videos", [])
@@ -48,6 +51,7 @@ def fetch_pexels_video(query, index):
     selected_video = random.choice(videos)
     video_files = selected_video.get("video_files", [])
     
+    # En az 1080p yüksekliğinde video linkini seç
     video_url = video_files[0]["link"]
     for vf in video_files:
         if vf.get("height", 0) >= 1920:
@@ -61,8 +65,9 @@ def fetch_pexels_video(query, index):
     return temp_path
 
 def send_telegram_video(video_path, caption=""):
+    """Render tamamlanan videoyu Telegram Bot API ile kanala/kullanıcıya iletir."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, Telegram gönderimi atlanıyor.")
+        print("⚠️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik. Telegram gönderimi atlanıyor.")
         return
 
     print("📤 Video Telegram'a yükleniyor...")
@@ -84,6 +89,10 @@ def send_telegram_video(video_path, caption=""):
 def create_video():
     font_path = get_system_font()
 
+    # 1. Metin Okuma
+    if not os.path.exists("metinler.txt"):
+        raise FileNotFoundError("'metinler.txt' dosyası ana dizinde bulunamadı!")
+
     with open("metinler.txt", "r", encoding="utf-8") as f:
         full_text = f.read().strip()
 
@@ -91,6 +100,7 @@ def create_video():
     if not sentences:
         sentences = [full_text]
     
+    # 2. Ses Dosyası Oluşturma
     print("🎙️ Seslendirme üretiliyor (Edge-TTS)...")
     speech_audio_path = "speech.mp3"
     asyncio.run(generate_speech(full_text, speech_audio_path))
@@ -98,22 +108,24 @@ def create_video():
     speech_clip = AudioFileClip(speech_audio_path)
     total_duration = speech_clip.duration + 1.0
 
-    print(f"🎬 Metinde {len(sentences)} bölüm bulundu. Dinamik arka plan videoları indiriliyor...")
-    
+    # 3. Arka Plan Videolarını İndirme ve İşleme
+    print(f"🎬 Metinde {len(sentences)} bölüm bulundu. Dinamik arka plan videoları işleniyor...")
     segment_duration = total_duration / len(sentences)
     video_clips = []
 
     for idx, sentence in enumerate(sentences):
         query = SEARCH_KEYWORDS[idx % len(SEARCH_KEYWORDS)]
-        print(f"  └─ [{idx+1}/{len(sentences)}] '{query}' kelimesi için video indiriliyor...")
+        print(f"  └─ [{idx+1}/{len(sentences)}] '{query}' kelimesi için video çekiliyor...")
         
         bg_video_path = fetch_pexels_video(query, idx)
         clip = VideoFileClip(bg_video_path)
         
+        # Süre yetersizse videoyu döngüye al
         if clip.duration < segment_duration:
             loop_count = int(segment_duration // clip.duration) + 1
             clip = concatenate_videoclips([clip] * loop_count)
             
+        # MoviePy 2.0+ ve eski sürümler ile çift uyumlu boyutlandırma
         if hasattr(clip, 'resized'):
             clip = clip.resized(new_size=(1080, 1920))
         else:
@@ -128,17 +140,17 @@ def create_video():
 
     final_bg_clip = concatenate_videoclips(video_clips)
 
-    # TextClip parametreleri
+    # 4. Altyazı / Metin Kartı (TextClip) Yapılandırması
+    # RGBA tuple formatı Pillow hatasını önler (0, 0, 0, 165 = %65 Saydam Siyah)
     text_kwargs = {
         "text": full_text,
         "font_size": 42,
         "color": 'white',
         "method": 'caption',
         "size": (900, None),
-        "bg_color": 'rgba(0,0,0,0.65)'
+        "bg_color": (0, 0, 0, 165)
     }
     
-    # Gerçek .ttf yolu varsa font ekle
     if font_path:
         text_kwargs["font"] = font_path
 
@@ -149,6 +161,7 @@ def create_video():
     else:
         txt_clip = txt_clip.set_position(('center', 'center')).set_duration(total_duration)
 
+    # 5. Arka Plan Müzik Birleştirme
     bg_music_path = os.path.join("assets", "suspense.mp3")
     if os.path.exists(bg_music_path):
         bg_music = AudioFileClip(bg_music_path)
@@ -172,12 +185,14 @@ def create_video():
     else:
         final_audio = speech_clip
 
+    # 6. Render Alma
     output_filename = "dark_history_output.mp4"
+    final_video_clip = CompositeVideoClip([final_bg_clip, txt_clip])
     
-    if hasattr(CompositeVideoClip([final_bg_clip, txt_clip]), 'with_audio'):
-        final_video = CompositeVideoClip([final_bg_clip, txt_clip]).with_audio(final_audio)
+    if hasattr(final_video_clip, 'with_audio'):
+        final_video = final_video_clip.with_audio(final_audio)
     else:
-        final_video = CompositeVideoClip([final_bg_clip, txt_clip]).set_audio(final_audio)
+        final_video = final_video_clip.set_audio(final_audio)
 
     print("🚀 Video render ediliyor...")
     final_video.write_videofile(
@@ -189,11 +204,16 @@ def create_video():
     )
     print("✅ Render tamamlandı!")
 
+    # Geçici arka plan video dosyalarını temizle
     for idx in range(len(sentences)):
         temp_file = f"temp_bg_{idx}.mp4"
         if os.path.exists(temp_file):
             os.remove(temp_file)
+            
+    if os.path.exists(speech_audio_path):
+        os.remove(speech_audio_path)
 
+    # 7. Telegram Botu İle Videoyu Gönderme
     send_telegram_video(
         video_path=output_filename,
         caption="🎬 **Yeni Karanlık Tarih Videosu Hazır!**\n\nBeğenip Paylaşmayı Unutmayın ❤️"
