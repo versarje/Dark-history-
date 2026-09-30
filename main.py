@@ -17,33 +17,16 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 VOICE = "tr-TR-AhmetNeural"
 
-def extract_keywords_for_sentence(sentence, index):
-    """Metnin içeriğine göre en alakalı Pexels görsel sorgusunu belirler."""
-    s = sentence.lower()
-    
-    if any(w in s for w in ["tarih", "cezalandırma", "korkunç", "yöntemi"]):
-        return "ancient ruins dark history"
-    elif any(w in s for w in ["antik yunan", "pirinç boğa", "icadı"]):
-        return "ancient greece statue bronze"
-    elif any(w in s for w in ["alet", "bronz", "heykel", "içi boş"]):
-        return "bronze bull metal statue"
-    elif any(w in s for w in ["ateş", "kilitleniyor", "yakılıyordu", "kurban"]):
-        return "fire burning flames dark"
-    elif any(w in s for w in ["metal", "ısındıkça", "pişiyordu"]):
-        return "hot metal iron fire"
-    elif any(w in s for w in ["ürpertici", "kısmı"]):
-        return "dark mystery cinematic horror"
-    elif any(w in s for w in ["ağzındaki", "boru", "çığlık", "böğürmesi", "öfkeli"]):
-        return "roaring bull angry smoke"
-    elif any(w in s for w in ["ironi", "biliyor musunuz"]):
-        return "dramatic silhouette dark"
-    elif any(w in s for w in ["icat eden", "canlı canlı", "ilk insan"]):
-        return "ancient execution fire dark"
-    elif "beğenip" in s or "paylaşmayı" in s:
-        return "dark aesthetic cinematic background"
-    
-    fallback_keywords = ["dark history", "ancient ruins", "spooky dark background", "fire flames"]
-    return fallback_keywords[index % len(fallback_keywords)]
+def get_dark_history_query(index):
+    """Sadece karanlık tarih ve gizem konseptli İngilizce arama terimleri döndürür."""
+    queries = [
+        "dark history",
+        "ancient mystery",
+        "dark history cinematic",
+        "ancient ruins dark mystery",
+        "dark moody historical background"
+    ]
+    return queries[index % len(queries)]
 
 def get_system_font():
     """Linux ortamında sorunsuz çalışan font yolunu döndürür."""
@@ -69,7 +52,6 @@ def create_subtitle_image(text, max_width=860, font_path=None, font_size=46):
     else:
         font = ImageFont.load_default()
 
-    # Kelimeleri bölmeden satır sarmalama
     avg_char_w = font.getlength("a") if hasattr(font, 'getlength') else 20
     max_chars_per_line = max(10, int(max_width / avg_char_w))
     wrapped_lines = textwrap.wrap(text, width=max_chars_per_line, break_long_words=False, break_on_hyphens=False)
@@ -97,7 +79,6 @@ def create_subtitle_image(text, max_width=860, font_path=None, font_size=46):
     card_w = total_w + (pad_x * 2)
     card_h = total_h + (pad_y * 2)
 
-    # RGBA Siyah Yarı Saydam Kart
     img = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 190))
     draw = ImageDraw.Draw(img)
 
@@ -105,7 +86,7 @@ def create_subtitle_image(text, max_width=860, font_path=None, font_size=46):
     for i, line in enumerate(wrapped_lines):
         line_w = line_widths[i]
         line_x = (card_w - line_w) / 2
-        draw.text((line_x, curr_y), line, font=font, fill=(255, 215, 0, 255)) # Sarı renk
+        draw.text((line_x, curr_y), line, font=font, fill=(255, 215, 0, 255))
         curr_y += line_heights[i]
 
     temp_path = f"temp_subtitle_{random.randint(1000,9999)}.png"
@@ -139,6 +120,7 @@ async def generate_speech(text, output_audio):
     await communicate.save(output_audio)
 
 def fetch_pexels_image(query, index):
+    """Sadece karanlık tarih ve gizem sorgularına göre Pexels API üzerinden görsel indirir."""
     if not PEXELS_API_KEY:
         raise ValueError("PEXELS_API_KEY bulunamadı!")
         
@@ -168,7 +150,7 @@ def split_text_into_sentences(text):
 
 def send_telegram_video(video_path, caption=""):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, gönderim atlanıyor.")
+        print("⚠️️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, gönderim atlanıyor.")
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo"
@@ -194,14 +176,13 @@ def create_video():
     if not sentences:
         sentences = [full_text]
         
-    call_to_action = "Beğenip Paylaşmayı Unutmayın ❤️️"
+    call_to_action = "Beğenip Paylaşmayı Unutmayın ❤️"
     sentences.append(call_to_action)
 
-    # Seslendirme metni hazırlığı (emojiler temizlendi)
     tts_sentences = [clean_text_for_tts(s) for s in sentences]
     tts_full_text = " ".join(tts_sentences)
 
-    print("🎙️ Seslendirme üretiliyor (Edge-TTS)...")
+    print("🎙️️ Seslendirme üretiliyor (Edge-TTS)...")
     speech_audio_path = "speech.mp3"
     asyncio.run(generate_speech(tts_full_text, speech_audio_path))
 
@@ -215,13 +196,13 @@ def create_video():
     temp_subtitle_files = []
     current_time = 0.0
 
-    print("📸 Görseller işleniyor ve altyazılar hizalanıyor...")
+    print("📸 Karanlık tarih ve gizem konseptli görseller çekiliyor...")
     for idx, sentence in enumerate(sentences):
         word_count = len(sentence.split())
         sentence_duration = max(2.2, (word_count / total_words) * total_duration)
 
-        query = extract_keywords_for_sentence(sentence, idx)
-        print(f"  [Cümle {idx+1}] Sorgu: '{query}' -> Cümle: '{sentence[:30]}...'")
+        query = get_dark_history_query(idx)
+        print(f"  [Cümle {idx+1}] Pexels Sorgusu: '{query}'")
         img_path = fetch_pexels_image(query, idx)
         
         img_clip = ImageClip(img_path)
@@ -232,16 +213,14 @@ def create_video():
             
         image_clips.append(img_clip)
 
-        # Alt Yazı Kartı Oluşturma
+        # Alt Yazı Kartı
         f_size = 50 if idx == 0 else 42
         sub_img_path = create_subtitle_image(sentence, max_width=820, font_path=font_path, font_size=f_size)
         temp_subtitle_files.append(sub_img_path)
 
         txt_clip = ImageClip(sub_img_path)
         
-        # --- KONUM AYARLARI ---
-        # idx == 0 (Kanca Metni): Yukarıda (Ekran yüksekliğinin %20'si)
-        # idx > 0 (Gövde Metni / Altyazı): Tam ortada (Ekran yüksekliğinin %50'si / 'center')
+        # Konumlandırma: Kanca Üstte (%20 Yükseklik), Diğer Altyazılar Ortada ('center')
         y_pos = 0.20 if idx == 0 else 'center'
 
         if hasattr(txt_clip, 'with_position'):
@@ -303,7 +282,7 @@ def create_video():
     )
     print("✅ HD Render tamamlandı!")
 
-    # Geçici dosyaların temizliği
+    # Temizlik
     for idx in range(len(sentences)):
         for f_path in [f"temp_img_{idx}.jpg", f"processed_temp_img_{idx}.jpg"]:
             if os.path.exists(f_path):
@@ -318,7 +297,7 @@ def create_video():
 
     send_telegram_video(
         video_path=output_filename,
-        caption="🎬 **Kanca Yukarıda, Altyazılar Ortada HD Video Hazır!**\n\nBeğenip Paylaşmayı Unutmayın ❤️"
+        caption="🎬 **Karanlık Tarih & Gizem Konseptli HD Video Hazır!**\n\nBeğenip Paylaşmayı Unutmayın ❤️"
     )
 
 if __name__ == "__main__":
