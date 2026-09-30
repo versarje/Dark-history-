@@ -1,0 +1,41 @@
+name: Dark History Video Generator
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick
+          # ImageMagick güvenlik ilkesi düzenlemesi (TextClip çalışması için)
+          sudo sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
+          sudo sed -i 's/domain="path" type="regex" pattern="@\*"//' /etc/ImageMagick-6/policy.xml
+
+      - name: Install Python Packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate Video
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python main.py
+
+      - name: Upload Generated Video
+        uses: actions/upload-artifact@v3
+        with:
+          name: dark-history-video
+          path: dark_history_output.mp4
