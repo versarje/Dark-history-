@@ -16,17 +16,17 @@ VOICE = "tr-TR-AhmetNeural"
 
 SEARCH_KEYWORDS = ["ancient ruins", "fire burning", "dark smoke", "bronze statue", "spooky dark background"]
 
-def ensure_font_downloaded():
-    """Font hatası oluşmaması için Montserrat-Bold.ttf dosyasını yerel olarak indirir."""
-    font_path = "Montserrat-Bold.ttf"
-    if not os.path.exists(font_path):
-        print("FONT: 'Montserrat-Bold.ttf' indiriliyor...")
-        url = "https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf"
-        res = requests.get(url)
-        with open(font_path, "wb") as f:
-            f.write(res.content)
-        print("FONT: İndirme tamamlandı.")
-    return font_path
+def get_system_font():
+    """Ubuntu/Linux sistemindeki garanti .ttf font dosyasının yolunu döndürür."""
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+    ]
+    for path in font_paths:
+        if os.path.exists(path):
+            return path
+    return None
 
 async def generate_speech(text, output_audio):
     communicate = edge_tts.Communicate(text, VOICE)
@@ -82,8 +82,7 @@ def send_telegram_video(video_path, caption=""):
         print(f"❌ Telegram bağlantı hatası: {e}")
 
 def create_video():
-    # Fontun yerel olarak varlığını garanti et
-    font_file = ensure_font_downloaded()
+    font_path = get_system_font()
 
     with open("metinler.txt", "r", encoding="utf-8") as f:
         full_text = f.read().strip()
@@ -129,16 +128,21 @@ def create_video():
 
     final_bg_clip = concatenate_videoclips(video_clips)
 
-    # İndirilen yerel font dosyasını veriyoruz
-    txt_clip = TextClip(
-        text=full_text,
-        font_size=42,
-        color='white',
-        font=font_file,
-        method='caption',
-        size=(900, None),
-        bg_color='rgba(0,0,0,0.65)'
-    )
+    # TextClip parametreleri
+    text_kwargs = {
+        "text": full_text,
+        "font_size": 42,
+        "color": 'white',
+        "method": 'caption',
+        "size": (900, None),
+        "bg_color": 'rgba(0,0,0,0.65)'
+    }
+    
+    # Gerçek .ttf yolu varsa font ekle
+    if font_path:
+        text_kwargs["font"] = font_path
+
+    txt_clip = TextClip(**text_kwargs)
 
     if hasattr(txt_clip, 'with_position'):
         txt_clip = txt_clip.with_position(('center', 'center')).with_duration(total_duration)
