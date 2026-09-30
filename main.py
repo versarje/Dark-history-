@@ -16,6 +16,18 @@ VOICE = "tr-TR-AhmetNeural"
 
 SEARCH_KEYWORDS = ["ancient ruins", "fire burning", "dark smoke", "bronze statue", "spooky dark background"]
 
+def ensure_font_downloaded():
+    """Font hatası oluşmaması için Montserrat-Bold.ttf dosyasını yerel olarak indirir."""
+    font_path = "Montserrat-Bold.ttf"
+    if not os.path.exists(font_path):
+        print("FONT: 'Montserrat-Bold.ttf' indiriliyor...")
+        url = "https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf"
+        res = requests.get(url)
+        with open(font_path, "wb") as f:
+            f.write(res.content)
+        print("FONT: İndirme tamamlandı.")
+    return font_path
+
 async def generate_speech(text, output_audio):
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_audio)
@@ -50,7 +62,7 @@ def fetch_pexels_video(query, index):
 
 def send_telegram_video(video_path, caption=""):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, Telegram gönderimi atlanıyor.")
+        print("⚠️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, Telegram gönderimi atlanıyor.")
         return
 
     print("📤 Video Telegram'a yükleniyor...")
@@ -70,6 +82,9 @@ def send_telegram_video(video_path, caption=""):
         print(f"❌ Telegram bağlantı hatası: {e}")
 
 def create_video():
+    # Fontun yerel olarak varlığını garanti et
+    font_file = ensure_font_downloaded()
+
     with open("metinler.txt", "r", encoding="utf-8") as f:
         full_text = f.read().strip()
 
@@ -114,12 +129,12 @@ def create_video():
 
     final_bg_clip = concatenate_videoclips(video_clips)
 
-    # GARANTİ FONT: DejaVu-Sans-Bold
+    # İndirilen yerel font dosyasını veriyoruz
     txt_clip = TextClip(
         text=full_text,
         font_size=42,
         color='white',
-        font='DejaVu-Sans-Bold',
+        font=font_file,
         method='caption',
         size=(900, None),
         bg_color='rgba(0,0,0,0.65)'
