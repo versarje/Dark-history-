@@ -87,35 +87,43 @@ async def generate_speech(text, output_audio):
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_audio)
 
+def process_and_resize_image(img_path, target_w=1080, target_h=1920):
+    """Görseli MoviePy resize kullanmadan doğrudan PIL ile 1080x1920 boyutlandırır (ANTIALIAS Hatasını Engeller)."""
+    try:
+        with Image.open(img_path) as img:
+            img = img.convert("RGB")
+            # Resampling filtresini yeni Pillow sürümleri ile uyumlu hale getiriyoruz
+            resample_filter = getattr(Image, 'Resampling', Image).LANCZOS
+            img_resized = img.resize((target_w, target_h), resample_filter)
+            img_resized.save(img_path)
+    except Exception as e:
+        print(f"  ⚠️ Görsel yeniden boyutlandırma hatası: {e}")
+
 def generate_ai_image(sentence_text, index):
-    """
-    Pollinations.ai kullanarak cümleye uygun dikey (1080x1920) yapay zeka görseli üretir.
-    """
+    """Pollinations.ai kullanarak cümleye uygun dikey yapay zeka görseli üretir."""
     temp_path = f"temp_img_{index}.jpg"
     
-    # Cümleden metin içi kelimeleri alıp yapay zeka istemi (prompt) oluşturuyoruz
     cleaned_text = re.sub(r'[^\w\s]', '', sentence_text).strip()
     words = cleaned_text.split()
-    base_keywords = " ".join(words[:5]) if words else "dark historical mystery"
+    base_keywords = " ".join(words[:4]) if words else "dark history"
     
-    # Yapay zekaya karanlık/sinematik atmosfer istemi veriyoruz
-    prompt = f"dark historical scene, cinematic lighting, realistic, 8k, concept art, {base_keywords}"
+    prompt = f"dark historical scene, cinematic lighting, realistic, {base_keywords}"
     encoded_prompt = urllib.parse.quote(prompt)
     
-    # Pollinations AI dikey görsel URL'si
     ai_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1920&nologo=true&seed={random.randint(1, 99999)}"
 
     try:
-        res = requests.get(ai_url, timeout=15)
-        if res.status_code == 200:
+        res = requests.get(ai_url, timeout=10)
+        if res.status_code == 200 and len(res.content) > 1000:
             with open(temp_path, "wb") as f:
                 f.write(res.content)
-            print(f"  🎨 [Cümle {index+1}] Yapay Zeka Görseli Üretildi!")
+            process_and_resize_image(temp_path)
+            print(f"  🎨 [Cümle {index+1}] AI Görseli Üretildi!")
             return temp_path
     except Exception as e:
-        print(f"  ⚠️ Yapay zeka görseli üretilemedi ({e}), Pexels/Yedek moda geçiliyor.")
+        print(f"  ⚠️ AI görseli zaman aşımına uğradı ({e}), Pexels/Yedek moda geçiliyor.")
 
-    # Yapay zeka başarısız olursa Pexels yedek araması
+    # Pexels Yedek
     if PEXELS_API_KEY:
         try:
             headers = {"Authorization": PEXELS_API_KEY}
@@ -125,14 +133,15 @@ def generate_ai_image(sentence_text, index):
             if photos:
                 selected_photo = random.choice(photos[:min(3, len(photos))])
                 img_url = selected_photo["src"].get("original", selected_photo["src"]["large2x"])
-                img_data = requests.get(img_url, timeout=10).content
+                img_data = requests.get(img_url, timeout=5).content
                 with open(temp_path, "wb") as f:
                     f.write(img_data)
+                process_and_resize_image(temp_path)
                 return temp_path
-        except Exception as pex_e:
-            print(f"  ⚠️ Pexels yedek araması da başarısız oldu: {pex_e}")
+        except Exception:
+            pass
 
-    # Son çare: Düz siyah canvas
+    # Siyah Tuval Yedek
     Image.new('RGB', (1080, 1920), color=(15, 15, 15)).save(temp_path)
     return temp_path
 
@@ -196,7 +205,8 @@ def create_video():
         # Yapay zeka görsel üretimi
         img_path = generate_ai_image(sentence, idx)
         
-        img_clip = ImageClip(img_path).resize((1080, 1920)).set_duration(sentence_duration)
+        # MoviePy'ın .resize() metodu yerine doğrudan PIL ile işlenmiş görseli ekliyoruz
+        img_clip = ImageClip(img_path).set_duration(sentence_duration)
         image_clips.append(img_clip)
 
         f_size = 48 if idx == 0 else 40
