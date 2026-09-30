@@ -1,0 +1,5 @@
+moviepy
+requests
+edge-tts
+asyncio
+pillow
