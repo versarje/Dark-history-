@@ -20,7 +20,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg imagemagick
-          # ImageMagick güvenlik ilkesi düzenlemesi (TextClip çalışması için)
+          # ImageMagick güvenlik ilkesi izinleri (TextClip sorunsuz çalışsın diye)
           sudo sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
           sudo sed -i 's/domain="path" type="regex" pattern="@\*"//' /etc/ImageMagick-6/policy.xml
 
@@ -29,12 +29,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate Video
+      - name: Generate and Send Video
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
 
-      - name: Upload Generated Video
+      - name: Upload Artifact
         uses: actions/upload-artifact@v3
         with:
           name: dark-history-video
