@@ -7,7 +7,7 @@ import edge_tts
 import textwrap
 import urllib.parse
 from PIL import Image, ImageDraw, ImageFont
-from moviepy import (
+from moviepy.editor import (
     ImageClip, AudioFileClip, CompositeVideoClip, 
     CompositeAudioClip, concatenate_videoclips
 )
@@ -18,33 +18,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 VOICE = "tr-TR-AhmetNeural"
 
-def translate_text_free(text):
-    """
-    Ek kütüphane gerektirmeden, varsayılan Python HTTP istekleri ile
-    Türkçe cümleyi arka planda İngilizceye çevirir.
-    """
-    try:
-        url = "https://translate.googleapis.com/translate_a/single"
-        params = {
-            "client": "gtx",
-            "sl": "tr",
-            "tl": "en",
-            "dt": "t",
-            "q": text
-        }
-        res = requests.get(url, params=params, timeout=5).json()
-        translated_text = res[0][0][0]
-        
-        # Pexels araması için temizleme
-        cleaned = re.sub(r'[^\w\s]', '', translated_text)
-        words = cleaned.split()
-        return " ".join(words[:6]) if len(words) > 6 else cleaned
-    except Exception as e:
-        print(f"⚠️ Dahili çeviri uyarısı: {e}")
-        return "dark historical background"
-
 def get_system_font():
-    """Linux ortamında sorunsuz çalışan font yolunu döndürür."""
+    """Linux / GitHub Actions ortamında sorunsuz çalışan font yolunu döndürür."""
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -112,30 +87,53 @@ async def generate_speech(text, output_audio):
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_audio)
 
-def fetch_pexels_image(query, index):
-    """Sorguya göre Pexels API üzerinden görsel indirir."""
-    if not PEXELS_API_KEY:
-        raise ValueError("PEXELS_API_KEY bulunamadı!")
-        
-    headers = {"Authorization": PEXELS_API_KEY}
-    url = f"https://api.pexels.com/v1/search?query={query}&orientation=portrait&per_page=10"
-    
-    res = requests.get(url, headers=headers).json()
-    photos = res.get("photos", [])
-    
-    if not photos:
-        fallback_query = "dark mystery history"
-        url = f"https://api.pexels.com/v1/search?query={fallback_query}&orientation=portrait&per_page=10"
-        photos = requests.get(url, headers=headers).json().get("photos", [])
-
-    selected_photo = random.choice(photos[:min(3, len(photos))]) if photos else photos[0]
-    img_url = selected_photo["src"].get("original", selected_photo["src"]["large2x"])
-
-    img_data = requests.get(img_url).content
+def generate_ai_image(sentence_text, index):
+    """
+    Pollinations.ai kullanarak cümleye uygun dikey (1080x1920) yapay zeka görseli üretir.
+    """
     temp_path = f"temp_img_{index}.jpg"
-    with open(temp_path, "wb") as f:
-        f.write(img_data)
-        
+    
+    # Cümleden metin içi kelimeleri alıp yapay zeka istemi (prompt) oluşturuyoruz
+    cleaned_text = re.sub(r'[^\w\s]', '', sentence_text).strip()
+    words = cleaned_text.split()
+    base_keywords = " ".join(words[:5]) if words else "dark historical mystery"
+    
+    # Yapay zekaya karanlık/sinematik atmosfer istemi veriyoruz
+    prompt = f"dark historical scene, cinematic lighting, realistic, 8k, concept art, {base_keywords}"
+    encoded_prompt = urllib.parse.quote(prompt)
+    
+    # Pollinations AI dikey görsel URL'si
+    ai_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1920&nologo=true&seed={random.randint(1, 99999)}"
+
+    try:
+        res = requests.get(ai_url, timeout=15)
+        if res.status_code == 200:
+            with open(temp_path, "wb") as f:
+                f.write(res.content)
+            print(f"  🎨 [Cümle {index+1}] Yapay Zeka Görseli Üretildi!")
+            return temp_path
+    except Exception as e:
+        print(f"  ⚠️ Yapay zeka görseli üretilemedi ({e}), Pexels/Yedek moda geçiliyor.")
+
+    # Yapay zeka başarısız olursa Pexels yedek araması
+    if PEXELS_API_KEY:
+        try:
+            headers = {"Authorization": PEXELS_API_KEY}
+            pexels_url = "https://api.pexels.com/v1/search?query=dark%20history&orientation=portrait&per_page=10"
+            pexels_res = requests.get(pexels_url, headers=headers, timeout=5).json()
+            photos = pexels_res.get("photos", [])
+            if photos:
+                selected_photo = random.choice(photos[:min(3, len(photos))])
+                img_url = selected_photo["src"].get("original", selected_photo["src"]["large2x"])
+                img_data = requests.get(img_url, timeout=10).content
+                with open(temp_path, "wb") as f:
+                    f.write(img_data)
+                return temp_path
+        except Exception as pex_e:
+            print(f"  ⚠️ Pexels yedek araması da başarısız oldu: {pex_e}")
+
+    # Son çare: Düz siyah canvas
+    Image.new('RGB', (1080, 1920), color=(15, 15, 15)).save(temp_path)
     return temp_path
 
 def split_text_into_sentences(text):
@@ -145,7 +143,7 @@ def split_text_into_sentences(text):
 
 def send_telegram_video(video_path, caption=""):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, gönderim atlanıyor.")
+        print("⚠️ Telegram token eksik, gönderim atlanıyor.")
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo"
@@ -153,8 +151,8 @@ def send_telegram_video(video_path, caption=""):
         with open(video_path, "rb") as video_file:
             payload = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"}
             files = {"video": video_file}
-            requests.post(url, data=payload, files=files)
-            print("✅ HD Video Telegram'a başarıyla iletildi!")
+            requests.post(url, data=payload, files=files, timeout=60)
+            print("✅ Video Telegram'a iletildi!")
     except Exception as e:
         print(f"❌ Telegram hatası: {e}")
 
@@ -182,8 +180,7 @@ def create_video():
     asyncio.run(generate_speech(tts_full_text, speech_audio_path))
 
     speech_clip = AudioFileClip(speech_audio_path)
-    total_duration = speech_clip.duration + 1.0
-
+    total_duration = speech_clip.duration + 0.8
     total_words = sum(len(s.split()) for s in sentences)
     
     image_clips = []
@@ -191,45 +188,26 @@ def create_video():
     temp_subtitle_files = []
     current_time = 0.0
 
-    print("🧠 Cümleler otomatik çevriliyor ve Pexels'ten uygun görseller çekiliyor...")
+    print("🤖 Yapay zeka ile cümleye özel görseller üretiliyor...")
     for idx, sentence in enumerate(sentences):
         word_count = len(sentence.split())
-        sentence_duration = max(2.2, (word_count / total_words) * total_duration)
+        sentence_duration = max(2.0, (word_count / total_words) * total_duration)
 
-        # Dahili ücretsiz çeviri çağrılıyor
-        search_query = translate_text_free(sentence)
-        print(f"  [Cümle {idx+1}] Metin: '{sentence[:30]}...' -> Pexels Sorgusu: '{search_query}'")
+        # Yapay zeka görsel üretimi
+        img_path = generate_ai_image(sentence, idx)
         
-        img_path = fetch_pexels_image(search_query, idx)
-        
-        img_clip = ImageClip(img_path)
-        if hasattr(img_clip, 'resized'):
-            img_clip = img_clip.resized((1080, 1920))
-        elif hasattr(img_clip, 'resize'):
-            img_clip = img_clip.resize((1080, 1920))
-
-        if hasattr(img_clip, 'with_duration'):
-            img_clip = img_clip.with_duration(sentence_duration)
-        else:
-            img_clip = img_clip.set_duration(sentence_duration)
-            
+        img_clip = ImageClip(img_path).resize((1080, 1920)).set_duration(sentence_duration)
         image_clips.append(img_clip)
 
-        f_size = 50 if idx == 0 else 42
+        f_size = 48 if idx == 0 else 40
         sub_img_path = create_subtitle_image(sentence, max_width=820, font_path=font_path, font_size=f_size)
         temp_subtitle_files.append(sub_img_path)
 
-        txt_clip = ImageClip(sub_img_path)
-        y_pos = 0.20 if idx == 0 else 'center'
-
-        if hasattr(txt_clip, 'with_position'):
-            txt_clip = (txt_clip.with_position(('center', y_pos), relative=True if idx == 0 else False)
-                        .with_start(current_time)
-                        .with_duration(sentence_duration))
-        else:
-            txt_clip = (txt_clip.set_position(('center', y_pos), relative=True if idx == 0 else False)
-                        .set_start(current_time)
-                        .set_duration(sentence_duration))
+        y_pos = 380 if idx == 0 else 'center'
+        txt_clip = (ImageClip(sub_img_path)
+                    .set_position(('center', y_pos))
+                    .set_start(current_time)
+                    .set_duration(sentence_duration))
 
         text_clips.append(txt_clip)
         current_time += sentence_duration
@@ -243,43 +221,26 @@ def create_video():
             loop_count = int(total_duration // bg_music.duration) + 1
             bg_music = concatenate_videoclips([bg_music] * loop_count)
 
-        if hasattr(bg_music, 'subclipped'):
-            bg_music = bg_music.subclipped(0, total_duration)
-        else:
-            bg_music = bg_music.subclip(0, total_duration)
-
-        if hasattr(bg_music, 'with_volume_scaling'):
-            bg_music = bg_music.with_volume_scaling(0.15)
-            speech_clip = speech_clip.with_volume_scaling(1.2)
-        else:
-            bg_music = bg_music.volumex(0.15)
-            speech_clip = speech_clip.volumex(1.2)
-
+        bg_music = bg_music.subclip(0, total_duration).volumex(0.12)
+        speech_clip = speech_clip.volumex(1.2)
         final_audio = CompositeAudioClip([speech_clip, bg_music])
     else:
         final_audio = speech_clip
 
-    composite_elements = [final_bg] + text_clips
-    final_video_clip = CompositeVideoClip(composite_elements)
-
-    if hasattr(final_video_clip, 'with_audio'):
-        final_video = final_video_clip.with_audio(final_audio)
-    else:
-        final_video = final_video_clip.set_audio(final_audio)
+    final_video = CompositeVideoClip([final_bg] + text_clips).set_audio(final_audio)
 
     output_filename = "dark_history_output.mp4"
-    print("🚀 Video HD kalitede render ediliyor...")
+    print("🚀 Video render ediliyor...")
     
     final_video.write_videofile(
         output_filename,
-        fps=30,
+        fps=24,
         codec="libx264",
         audio_codec="aac",
-        bitrate="8000k",
-        preset="medium"
+        threads=2
     )
-    print("✅ HD Render tamamlandı!")
 
+    # Temizlik
     for idx in range(len(sentences)):
         f_path = f"temp_img_{idx}.jpg"
         if os.path.exists(f_path):
@@ -294,7 +255,7 @@ def create_video():
 
     send_telegram_video(
         video_path=output_filename,
-        caption="🎬 **Tam Otomatik Dahili Çevirili HD Video!**\n\nBeğenip Paylaşmayı Unutmayın ❤️"
+        caption="🎬 **Yapay Zeka (AI) Tarafından Görselleri Üretilmiş HD Video!**"
     )
 
 if __name__ == "__main__":
