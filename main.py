@@ -5,6 +5,7 @@ import requests
 import asyncio
 import edge_tts
 import textwrap
+import urllib.parse
 from PIL import Image, ImageDraw, ImageFont
 from moviepy import (
     ImageClip, AudioFileClip, CompositeVideoClip, 
@@ -17,16 +18,30 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 VOICE = "tr-TR-AhmetNeural"
 
-def get_dark_history_query(index):
-    """Sadece karanlık tarih ve gizem konseptli İngilizce arama terimleri döndürür."""
-    queries = [
-        "dark history",
-        "ancient mystery",
-        "dark history cinematic",
-        "ancient ruins dark mystery",
-        "dark moody historical background"
-    ]
-    return queries[index % len(queries)]
+def translate_text_free(text):
+    """
+    Ek kütüphane gerektirmeden, varsayılan Python HTTP istekleri ile
+    Türkçe cümleyi arka planda İngilizceye çevirir.
+    """
+    try:
+        url = "https://translate.googleapis.com/translate_a/single"
+        params = {
+            "client": "gtx",
+            "sl": "tr",
+            "tl": "en",
+            "dt": "t",
+            "q": text
+        }
+        res = requests.get(url, params=params, timeout=5).json()
+        translated_text = res[0][0][0]
+        
+        # Pexels araması için temizleme
+        cleaned = re.sub(r'[^\w\s]', '', translated_text)
+        words = cleaned.split()
+        return " ".join(words[:6]) if len(words) > 6 else cleaned
+    except Exception as e:
+        print(f"⚠️ Dahili çeviri uyarısı: {e}")
+        return "dark historical background"
 
 def get_system_font():
     """Linux ortamında sorunsuz çalışan font yolunu döndürür."""
@@ -46,7 +61,7 @@ def clean_text_for_tts(text):
     return cleaned.strip()
 
 def create_subtitle_image(text, max_width=860, font_path=None, font_size=46):
-    """Metni düzgün bir şekilde sararak şeffaf siyah kart üstünde PIL görseli oluşturur."""
+    """Metni şeffaf siyah kart üstünde dikey format için PIL görseline çevirir."""
     if font_path and os.path.exists(font_path):
         font = ImageFont.truetype(font_path, font_size)
     else:
@@ -93,47 +108,27 @@ def create_subtitle_image(text, max_width=860, font_path=None, font_size=46):
     img.save(temp_path)
     return temp_path
 
-def process_image_aspect_ratio(img_path, target_w=1080, target_h=1920):
-    """Fotoğrafı esnetmeden, merkezden kırparak (crop) 1080x1920 yapar."""
-    img = Image.open(img_path)
-    w, h = img.size
-    
-    target_ratio = target_w / target_h
-    img_ratio = w / h
-    
-    if img_ratio > target_ratio:
-        new_w = int(h * target_ratio)
-        left = (w - new_w) // 2
-        img = img.crop((left, 0, left + new_w, h))
-    else:
-        new_h = int(w / target_ratio)
-        top = (h - new_h) // 2
-        img = img.crop((0, top, w, top + new_h))
-        
-    img = img.resize((target_w, target_h), Image.LANCZOS)
-    processed_path = f"processed_{os.path.basename(img_path)}"
-    img.save(processed_path)
-    return processed_path
-
 async def generate_speech(text, output_audio):
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_audio)
 
 def fetch_pexels_image(query, index):
-    """Sadece karanlık tarih ve gizem sorgularına göre Pexels API üzerinden görsel indirir."""
+    """Sorguya göre Pexels API üzerinden görsel indirir."""
     if not PEXELS_API_KEY:
         raise ValueError("PEXELS_API_KEY bulunamadı!")
         
     headers = {"Authorization": PEXELS_API_KEY}
-    url = f"https://api.pexels.com/v1/search?query={query}&orientation=portrait&per_page=15"
+    url = f"https://api.pexels.com/v1/search?query={query}&orientation=portrait&per_page=10"
+    
     res = requests.get(url, headers=headers).json()
     photos = res.get("photos", [])
     
     if not photos:
-        url = "https://api.pexels.com/v1/search?query=dark%20history&orientation=portrait&per_page=15"
+        fallback_query = "dark mystery history"
+        url = f"https://api.pexels.com/v1/search?query={fallback_query}&orientation=portrait&per_page=10"
         photos = requests.get(url, headers=headers).json().get("photos", [])
 
-    selected_photo = random.choice(photos)
+    selected_photo = random.choice(photos[:min(3, len(photos))]) if photos else photos[0]
     img_url = selected_photo["src"].get("original", selected_photo["src"]["large2x"])
 
     img_data = requests.get(img_url).content
@@ -141,7 +136,7 @@ def fetch_pexels_image(query, index):
     with open(temp_path, "wb") as f:
         f.write(img_data)
         
-    return process_image_aspect_ratio(temp_path)
+    return temp_path
 
 def split_text_into_sentences(text):
     raw_sentences = re.split(r'(?<=[.!?])\s+', text.strip())
@@ -150,7 +145,7 @@ def split_text_into_sentences(text):
 
 def send_telegram_video(video_path, caption=""):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, gönderim atlanıyor.")
+        print("⚠️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, gönderim atlanıyor.")
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo"
@@ -182,7 +177,7 @@ def create_video():
     tts_sentences = [clean_text_for_tts(s) for s in sentences]
     tts_full_text = " ".join(tts_sentences)
 
-    print("🎙️️ Seslendirme üretiliyor (Edge-TTS)...")
+    print("🎙️ Seslendirme üretiliyor (Edge-TTS)...")
     speech_audio_path = "speech.mp3"
     asyncio.run(generate_speech(tts_full_text, speech_audio_path))
 
@@ -196,16 +191,23 @@ def create_video():
     temp_subtitle_files = []
     current_time = 0.0
 
-    print("📸 Karanlık tarih ve gizem konseptli görseller çekiliyor...")
+    print("🧠 Cümleler otomatik çevriliyor ve Pexels'ten uygun görseller çekiliyor...")
     for idx, sentence in enumerate(sentences):
         word_count = len(sentence.split())
         sentence_duration = max(2.2, (word_count / total_words) * total_duration)
 
-        query = get_dark_history_query(idx)
-        print(f"  [Cümle {idx+1}] Pexels Sorgusu: '{query}'")
-        img_path = fetch_pexels_image(query, idx)
+        # Dahili ücretsiz çeviri çağrılıyor
+        search_query = translate_text_free(sentence)
+        print(f"  [Cümle {idx+1}] Metin: '{sentence[:30]}...' -> Pexels Sorgusu: '{search_query}'")
+        
+        img_path = fetch_pexels_image(search_query, idx)
         
         img_clip = ImageClip(img_path)
+        if hasattr(img_clip, 'resized'):
+            img_clip = img_clip.resized((1080, 1920))
+        elif hasattr(img_clip, 'resize'):
+            img_clip = img_clip.resize((1080, 1920))
+
         if hasattr(img_clip, 'with_duration'):
             img_clip = img_clip.with_duration(sentence_duration)
         else:
@@ -213,14 +215,11 @@ def create_video():
             
         image_clips.append(img_clip)
 
-        # Alt Yazı Kartı
         f_size = 50 if idx == 0 else 42
         sub_img_path = create_subtitle_image(sentence, max_width=820, font_path=font_path, font_size=f_size)
         temp_subtitle_files.append(sub_img_path)
 
         txt_clip = ImageClip(sub_img_path)
-        
-        # Konumlandırma: Kanca Üstte (%20 Yükseklik), Diğer Altyazılar Ortada ('center')
         y_pos = 0.20 if idx == 0 else 'center'
 
         if hasattr(txt_clip, 'with_position'):
@@ -237,7 +236,6 @@ def create_video():
 
     final_bg = concatenate_videoclips(image_clips)
 
-    # Arka Plan Müzik Ayarı
     bg_music_path = os.path.join("assets", "suspense.mp3")
     if os.path.exists(bg_music_path):
         bg_music = AudioFileClip(bg_music_path)
@@ -282,11 +280,10 @@ def create_video():
     )
     print("✅ HD Render tamamlandı!")
 
-    # Temizlik
     for idx in range(len(sentences)):
-        for f_path in [f"temp_img_{idx}.jpg", f"processed_temp_img_{idx}.jpg"]:
-            if os.path.exists(f_path):
-                os.remove(f_path)
+        f_path = f"temp_img_{idx}.jpg"
+        if os.path.exists(f_path):
+            os.remove(f_path)
                 
     for sub_file in temp_subtitle_files:
         if os.path.exists(sub_file):
@@ -297,7 +294,7 @@ def create_video():
 
     send_telegram_video(
         video_path=output_filename,
-        caption="🎬 **Karanlık Tarih & Gizem Konseptli HD Video Hazır!**\n\nBeğenip Paylaşmayı Unutmayın ❤️"
+        caption="🎬 **Tam Otomatik Dahili Çevirili HD Video!**\n\nBeğenip Paylaşmayı Unutmayın ❤️"
     )
 
 if __name__ == "__main__":
