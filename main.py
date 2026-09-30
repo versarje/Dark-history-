@@ -50,7 +50,7 @@ def fetch_pexels_video(query, index):
 
 def send_telegram_video(video_path, caption=""):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, Telegram gönderimi atlanıyor.")
+        print("⚠️️ TELEGRAM_BOT_TOKEN veya TELEGRAM_CHAT_ID eksik, Telegram gönderimi atlanıyor.")
         return
 
     print("📤 Video Telegram'a yükleniyor...")
@@ -114,11 +114,12 @@ def create_video():
 
     final_bg_clip = concatenate_videoclips(video_clips)
 
+    # GARANTİ FONT: DejaVu-Sans-Bold
     txt_clip = TextClip(
         text=full_text,
         font_size=42,
         color='white',
-        font='Arial-Bold',
+        font='DejaVu-Sans-Bold',
         method='caption',
         size=(900, None),
         bg_color='rgba(0,0,0,0.65)'
