@@ -14,7 +14,35 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 VOICE = "tr-TR-AhmetNeural"
-SEARCH_KEYWORDS = ["ancient ruins", "fire burning", "dark smoke", "bronze statue", "spooky dark background"]
+
+def extract_keywords_for_sentence(sentence, index):
+    """Metnin içeriğine göre en alakalı Pexels görsel sorgusunu belirler."""
+    s = sentence.lower()
+    
+    if any(w in s for w in ["tarih", "cezalandırma", "korkunç", "yöntemi"]):
+        return "ancient ruins dark history"
+    elif any(w in s for w in ["antik yunan", "pirinç boğa", "icadı"]):
+        return "ancient greece statue bronze"
+    elif any(w in s for w in ["alet", "bronz", "heykel", "içi boş"]):
+        return "bronze bull metal statue"
+    elif any(w in s for w in ["ateş", "kilitleniyor", "yakılıyordu", "kurban"]):
+        return "fire burning flames dark"
+    elif any(w in s for w in ["metal", "ısındıkça", "pişiyordu"]):
+        return "hot metal iron fire"
+    elif any(w in s for w in ["ürpertici", "kısmı"]):
+        return "dark mystery cinematic horror"
+    elif any(w in s for w in ["ağzındaki", "boru", "çığlık", "böğürmesi", "öfkeli"]):
+        return "roaring bull angry smoke"
+    elif any(w in s for w in ["ironi", "biliyor musunuz"]):
+        return "dramatic silhouette dark"
+    elif any(w in s for w in ["icat eden", "canlı canlı", "ilk insan"]):
+        return "ancient execution fire dark"
+    elif "beğenip" in s or "paylaşmayı" in s:
+        return "dark aesthetic cinematic background"
+    
+    # Eşleşme yoksa alternatif arama kelimeleri
+    fallback_keywords = ["dark history", "ancient ruins", "spooky dark background", "fire flames"]
+    return fallback_keywords[index % len(fallback_keywords)]
 
 def get_system_font():
     """Linux ortamında sorunsuz çalışan font yolunu döndürür."""
@@ -33,7 +61,7 @@ async def generate_speech(text, output_audio):
     await communicate.save(output_audio)
 
 def fetch_pexels_image(query, index):
-    """Pexels API üzerinden orijinal yüksek çözünürlüklü HD dikey fotoğraf indirir."""
+    """Belirtilen sorguya göre Pexels API üzerinden HD dikey fotoğraf indirir."""
     if not PEXELS_API_KEY:
         raise ValueError("PEXELS_API_KEY bulunamadı!")
         
@@ -43,6 +71,7 @@ def fetch_pexels_image(query, index):
     photos = res.get("photos", [])
     
     if not photos:
+        # Sorgu sonuç vermezse varsayılan arama
         url = "https://api.pexels.com/v1/search?query=dark%20history&orientation=portrait&per_page=15"
         photos = requests.get(url, headers=headers).json().get("photos", [])
 
@@ -57,7 +86,6 @@ def fetch_pexels_image(query, index):
 
 def split_text_into_sentences(text):
     """Metni noktalama işaretlerine göre cümle cümle ayırır."""
-    # Nokta, soru işareti, ünlem sonrası bölme yapıyoruz
     raw_sentences = re.split(r'(?<=[.!?])\s+', text.strip())
     sentences = [s.strip() for s in raw_sentences if s.strip()]
     return sentences
@@ -86,12 +114,10 @@ def create_video():
     with open("metinler.txt", "r", encoding="utf-8") as f:
         full_text = f.read().strip()
 
-    # Metni kısa cümlelere bölüyoruz (ekran yığılmasını önlemek için)
     sentences = split_text_into_sentences(full_text)
     if not sentences:
         sentences = [full_text]
         
-    # En sona CTA cümlesi ekle
     sentences.append("Beğenip Paylaşmayı Unutmayın ❤️")
 
     print("🎙️ Seslendirme üretiliyor (Edge-TTS)...")
@@ -101,21 +127,20 @@ def create_video():
     speech_clip = AudioFileClip(speech_audio_path)
     total_duration = speech_clip.duration + 1.5
 
-    # Cümlelerin kelime sayılarına orantılı olarak ekranda kalma sürelerini hesaplıyoruz
     total_words = sum(len(s.split()) for s in sentences)
     
     image_clips = []
     text_clips = []
     current_time = 0.0
 
-    print("📸 Cümle bazlı HD görseller indiriliyor ve dinamik altyazılar oluşturuluyor...")
+    print("📸 Metin içeriğine özel HD görseller seçiliyor ve altyazılar senkronize ediliyor...")
     for idx, sentence in enumerate(sentences):
         word_count = len(sentence.split())
-        # Cümle uzunluğuna göre süre belirleme (min 2.0 saniye)
         sentence_duration = max(2.0, (word_count / total_words) * total_duration)
 
-        # Arka plan görseli
-        query = SEARCH_KEYWORDS[idx % len(SEARCH_KEYWORDS)]
+        # 1. Metinden Arama Kelimelerini Tespit Et ve Görseli İndir
+        query = extract_keywords_for_sentence(sentence, idx)
+        print(f"  [Cümle {idx+1}] Sorgu: '{query}' -> Cümle: '{sentence[:30]}...'")
         img_path = fetch_pexels_image(query, idx)
         
         img_clip = ImageClip(img_path)
@@ -131,23 +156,22 @@ def create_video():
             
         image_clips.append(img_clip)
 
-        # Dinamik Alt Yazı Kartı (Sadece o anki cümle görünecek)
+        # 2. Alt Yazı Kartı
         text_kwargs = {
             "text": sentence,
-            "font_size": 52 if idx == 0 else 44,   # İlk cümle (Kanca) daha belirgin
-            "color": '#FFD700',                    # Altın Sarısı
+            "font_size": 52 if idx == 0 else 44,
+            "color": '#FFD700',
             "method": 'caption',
-            "size": (880, None),                   # Ekrana taşmayı önlemek için genişlik sınırlandı
-            "bg_color": (0, 0, 0, 190)             # Yarı saydam koyu arka plan
+            "size": (880, None),
+            "bg_color": (0, 0, 0, 190)
         }
         if font_path:
             text_kwargs["font"] = font_path
 
         txt_clip = TextClip(**text_kwargs)
 
-        # Cümlenin zamanlaması (Görünüp kaybolma)
         if hasattr(txt_clip, 'with_position'):
-            txt_clip = (txt_clip.with_position(('center', 0.65), relative=True)  # Ekranın alt-orta kısmına koyuyoruz
+            txt_clip = (txt_clip.with_position(('center', 0.65), relative=True)
                         .with_start(current_time)
                         .with_duration(sentence_duration))
         else:
@@ -160,7 +184,7 @@ def create_video():
 
     final_bg = concatenate_videoclips(image_clips)
 
-    # Arka Plan Müzik Ayarları
+    # Arka Plan Müzik Ayarı
     bg_music_path = os.path.join("assets", "suspense.mp3")
     if os.path.exists(bg_music_path):
         bg_music = AudioFileClip(bg_music_path)
@@ -193,7 +217,7 @@ def create_video():
         final_video = final_video_clip.set_audio(final_audio)
 
     output_filename = "dark_history_output.mp4"
-    print("🚀 Video HD kalitede ve dinamik alt yazılı olarak render ediliyor...")
+    print("🚀 Video HD kalitede render ediliyor...")
     
     final_video.write_videofile(
         output_filename,
@@ -206,7 +230,7 @@ def create_video():
     )
     print("✅ HD Render tamamlandı!")
 
-    # Temizlik İşlemleri
+    # Temizlik
     for idx in range(len(sentences)):
         temp_file = f"temp_img_{idx}.jpg"
         if os.path.exists(temp_file):
@@ -217,7 +241,7 @@ def create_video():
 
     send_telegram_video(
         video_path=output_filename,
-        caption="🎬 **Yeni Karanlık Tarih Videosu Hazır (Dinamik Altyazılı)!**\n\nBeğenip Paylaşmayı Unutmayın ❤️"
+        caption="🎬 **İçeriğe Uygun Görselli HD Video Hazır!**\n\nBeğenip Paylaşmayı Unutmayın ❤️"
     )
 
 if __name__ == "__main__":
